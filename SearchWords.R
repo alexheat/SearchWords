@@ -90,9 +90,24 @@ Revenue <- date_summary$Revenue/1000
 Clicks <- date_summary$Clicks
 CPC <- date_summary$CPC
 
-p1 <- qplot(x=Dates, y=Revenue, main="Revenue per Day", xlab=NULL, ylab=NULL)
-p2 <- qplot(x=Dates, y=Clicks, main="Clicks per Day", xlab=NULL, ylab=NULL)
-p3 <- qplot(x=Dates, y=CPC, main="Average CPC per Day", xlab=NULL, ylab=NULL)
+#Near zero values were distorting the chart
+#Chart is easier to read if the data is left out
+date_summary$Revenue[c(18:32,85:87)] <- NA
+
+p1 <- ggplot(date_summary, aes(x=SearchDate, y=Revenue/1000)) + 
+  geom_line() + ggtitle("Revenue per Day") +
+  ylab("(Thousands of GBP)") + xlab(NULL) + ylim(from=225/3, to=225)
+
+date_summary$Clicks[c(19:32, 40:43, 85:87)] <- NA
+p2 <- ggplot(date_summary, aes(x=SearchDate, y=Clicks/1000)) + 
+  geom_line() + ggtitle("Clicks per Day") +
+  ylab(NULL) + xlab(NULL) + ylim(from=40/3, to=40)
+
+date_summary$CPC[c(19:32, 85:87)] <- NA
+p3 <- ggplot(date_summary, aes(x=SearchDate, y=CPC)) + 
+  geom_line() + ggtitle("Average CPC per Day") +
+  ylab(NULL) + xlab(NULL) 
+
 multiplot(p1, p2, p3, cols=3)
 
 #Analys 2, indentify the top increasing and decreasing keywords
@@ -131,16 +146,23 @@ dataset_netflix <- dataset[dataset$Keyword=="netflix",]
 by_date_netflix <- group_by(dataset_netflix, SearchDate)
 date_summary_netflix <- summarize(by_date_netflix, CPC=mean(CPC), Revenue=sum(Revenue), Clicks=sum(Clicks))
 
-Dates <- date_summary_netflix$SearchDate
-Revenue <- date_summary_netflix$Revenue/1000
-Clicks <- date_summary_netflix$Clicks
-CPC <- date_summary_netflix$CPC
+p1 <- ggplot(date_summary_netflix, aes(x=SearchDate, y=Revenue/1000)) + 
+  geom_line() + ggtitle("Revenue per Day") +
+  ylab("(Thousands of GBP)") + xlab(NULL)  +
+  geom_line(col="navy")
 
-p1 <- qplot(x=Dates, y=Revenue, main="Revenue per Day", xlab=NULL, ylab=NULL)
-p2 <- qplot(x=Dates, y=Clicks, main="Clicks per Day", xlab=NULL, ylab=NULL)
-p3 <- qplot(x=Dates, y=CPC, main="Average CPC per Day", xlab=NULL, ylab=NULL)
+date_summary_netflix$Clicks[c(26:28)] <- NA
+p2 <- ggplot(date_summary_netflix, aes(x=SearchDate, y=Clicks/1000)) + 
+  geom_line() + ggtitle("Clicks per Day") +
+  ylab(NULL) + xlab(NULL) + 
+  geom_line(col="navy")
+
+#date_summary_netflix$CPC[c(19:32, 85:87)] <- NA
+p3 <- ggplot(date_summary_netflix, aes(x=SearchDate, y=CPC)) + 
+  geom_line() + ggtitle("Average CPC per Day") +
+  ylab(NULL) + xlab(NULL) + geom_line(col="navy")
+
 multiplot(p1, p2, p3, cols=3)
-
 
 #4 month charts without Netflix
 by_date <- group_by(dataset, SearchDate)
