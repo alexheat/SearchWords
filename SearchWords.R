@@ -6,6 +6,7 @@ library("ggplot2")
 library("reshape2")
 library("TTR")
 library("forecast")
+library("Rcell")
 
 registerDoParallel(cores=2)
 
@@ -95,8 +96,34 @@ p3 <- qplot(x=Dates, y=CPC, main="Average CPC per Day", xlab=NULL, ylab=NULL)
 multiplot(p1, p2, p3, cols=3)
 
 #Analys 2, indentify the top increasing and decreasing keywords
-#First group by 
+#First group by month
+by_month <- group_by(dataset, Keyword, Month=months(SearchDate))
+month_summary <- summarize(by_month,  Revenue=sum(Revenue))
+month_summary$Month <- factor(month_summary$Month, levels = c("February", "March", "April", "May"))
+month_summary <- dcast(month_summary, Keyword ~ Month, value.var = "Revenue") #Create one collumn per month
+month_summary$Change <- month_summary$May - month_summary$February
 
+top10 <- head(arrange(month_summary, desc(Change)),10)
+#Reorder the factor so it plots correctly
+top10$Keyword <- revFactor(factor(rev(top10$Keyword), levels = rev(top10$Keyword)))
+
+bottom10 <- head(arrange(month_summary, Change),10)
+#Reorder the factor so it plots correctly
+bottom10$Keyword <- revFactor(factor(bottom10$Keyword, levels = bottom10$Keyword))
+
+p1 <- ggplot(data=bottom10, aes(x=Keyword, y=Change/1000, fill=Change)) +
+  geom_bar(colour="black", stat="identity")  + coord_flip() + 
+  theme(legend.position="none") + 
+  ggtitle("Top 10 Revenue Decrease\nFeb-May") +
+  ylab("(Thousands of GBP)") + xlab(NULL)
+
+p2 <- ggplot(data=top10, aes(x=Keyword, y=Change/1000, fill=Change)) +
+  geom_bar(colour="black", stat="identity")  + coord_flip() + 
+  theme(legend.position="none") + 
+  ggtitle("Top 10 Revenue Increase\nFeb-May") +
+  ylab("(Thousands of GBP)") + xlab(NULL)
+
+multiplot(p1, p2, cols=2)
 
 
 #Analysis 3 netflix only

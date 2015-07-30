@@ -1,6 +1,7 @@
 ```{r echo=FALSE, warning=FALSE, message=FALSE}
 knitr::opts_chunk$set(cache=TRUE)
 
+library("Rcell")
 library("lubridate")
 library("dplyr")
 library(doParallel)
@@ -128,7 +129,12 @@ month_summary <- dcast(month_summary, Keyword ~ Month, value.var = "Revenue") #C
 month_summary$Change <- month_summary$May - month_summary$February
 
 top10 <- head(arrange(month_summary, desc(Change)),10)
+#Reorder the factor so it plots correctly
+top10$Keyword <- revFactor(factor(rev(top10$Keyword), levels = rev(top10$Keyword)))
+
 bottom10 <- head(arrange(month_summary, Change),10)
+#Reorder the factor so it plots correctly
+bottom10$Keyword <- revFactor(factor(bottom10$Keyword, levels = bottom10$Keyword))
 
 p1 <- ggplot(data=bottom10, aes(x=Keyword, y=Change/1000, fill=Change)) +
   geom_bar(colour="black", stat="identity")  + coord_flip() + 
@@ -143,6 +149,7 @@ p2 <- ggplot(data=top10, aes(x=Keyword, y=Change/1000, fill=Change)) +
   ylab("(Thousands of GBP)") + xlab(NULL)
 
 multiplot(p1, p2, cols=2)
+
 ```
 
 It is clear that a major source of the decline in overall revenue is caused by the decrease is revenue from the netflix.
