@@ -184,9 +184,8 @@ Revenue <- round(date_summary$Revenue)
 Start <- as.Date(date_summary[1,]$SearchDate)
 
 #Fill in some of the days that had very low sales
-Revenue[18:26] <- 200000
-Revenue[27:32] <- 180000
-Revenue[85:87] <- 120000
+Revenue[18:32] <- round(seq(from=211060, to=179251, length.out =15))
+Revenue[85:87] <- round(seq(from=124112, to=123375, length.out =3))
 RevTS <- ts(Revenue/1000)
 
 RevTS.seriesarima <- arima(RevTS, order=c(1,0,0))
