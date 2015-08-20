@@ -1,0 +1,16 @@
+base
+ggplot2
+proto
+plyr
+reshape
+Rcell
+lubridate
+dplyr
+foreach
+iterators
+doParallel
+reshape2
+TTR
+zoo
+timeDate
+forecast

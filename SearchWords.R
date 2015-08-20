@@ -1,12 +1,13 @@
 
 library("lubridate")
-library("dplyr")
-library(doParallel)
+library("doParallel")
 library("ggplot2")
-library("reshape2")
+library("reshape")
 library("TTR")
 library("forecast")
 library("Rcell")
+library("dplyr")
+
 
 registerDoParallel(cores=2)
 
@@ -115,12 +116,12 @@ multiplot(p1, p2, p3, cols=3)
 by_month <- group_by(dataset, Keyword, Month=months(SearchDate))
 month_summary <- summarize(by_month,  Revenue=sum(Revenue))
 month_summary$Month <- factor(month_summary$Month, levels = c("February", "March", "April", "May"))
-month_summary <- dcast(month_summary, Keyword ~ Month, value.var = "Revenue") #Create one collumn per month
+month_summary <- reshape2::dcast(month_summary, Keyword ~ Month, value.var = "Revenue") #Create one collumn per month
 month_summary$Change <- month_summary$May - month_summary$February
 
 top10 <- head(arrange(month_summary, desc(Change)),10)
 #Reorder the factor so it plots correctly
-top10$Keyword <- revFactor(factor(rev(top10$Keyword), levels = rev(top10$Keyword)))
+top10$Keyword <- Rcell::revFactor(factor(rev(top10$Keyword), levels = rev(top10$Keyword)))
 
 bottom10 <- head(arrange(month_summary, Change),10)
 #Reorder the factor so it plots correctly
@@ -180,6 +181,8 @@ Revenue[85:87] <- round(seq(from=124112, to=123375, length.out =3))
 Revenue
 RevTS <- ts(Revenue)
 plot(RevTS)
+
+auto.arima(RevTS)
 
 RevTS.seriesarima <- arima(RevTS, order=c(1,0,0))
 RevTS.seriesarima2 <- forecast.Arima(RevTS.seriesarima, h=30)
