@@ -1,0 +1,234 @@
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+knitr::opts_chunk$set(cache=TRUE)
+
+library("ggplot2")
+library("Rcell")
+library("lubridate")
+library("dplyr")
+library("doParallel")
+library("reshape2")
+library("TTR")
+library("forecast")
+
+registerDoParallel(cores=2)
+
+
+# Multiple plot function
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+  
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+  
+  numPlots = length(plots)
+  
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                     ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+  
+  if (numPlots==1) {
+    print(plots[[1]])
+    
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+    
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+      
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
+```
+
+---
+title: "Search Term Revenue Analysis"
+author: Alex Heaton
+output: html_document
+---
+# Summary 
+This is an analysis of bids for search ads from the [open-advertising-dataset](https://code.google.com/p/open-advertising-dataset/). The source of this data is not identified but it seems to provide data on click and costs from Google AdWords bids for 500 search terms in the UK from January 2012 to May 2012. The data is broken up into 170 csv files one for each day-and there are about 100,000 individual records after all of the csv files are combined.
+
+This analysis was done in R and publish as HTML using knitr. I did not include the R code in the report, but if you wish to see the R code it is available [here](https://github.com/alexheat/SearchWords/blob/gh-pages/SearchWords.RMD).
+```{r  echo=FALSE, warning=FALSE, message=FALSE}
+#Read all 178 Files of keywords and merge into one file
+file_list <- list.files("./csv")
+for (file in file_list){
+  # if the merged dataset doesn't exist, create it
+  path = paste(getwd(),"/csv/",file,sep = "")
+  searchDate <- ymd(substr(file, 15,22))
+  if (!exists("dataset")){
+    dataset <- read.csv(path, header=TRUE)
+    dataset$searchDate <- searchDate
+  } else {
+    temp_dataset <-read.csv(path, header=FALSE, skip=1)
+    temp_dataset$searchDate <- searchDate
+    names(temp_dataset) <- names(dataset)
+    dataset<-rbind(dataset, temp_dataset)
+    rm(temp_dataset)
+  }
+}
+
+#Remove the collums we don't need and do other cleanup on the data
+dataset$Global.Monthly.Searches <- NULL
+dataset$Estimated.Ad.Position <-  NULL
+names(dataset) <- c("Keyword", "CPC", "Clicks", "Revenue", "MonthlySearches", "SearchDate")
+dataset <-dataset[as.character(dataset$MonthlySearches) != as.character("-"),] 
+dataset$MonthlySearches <- as.numeric(dataset$MonthlySearches)
+dataset$Revenue <- as.numeric(gsub(",", "", dataset$Revenue, fixed = TRUE)) 
+dataset <- dataset[dataset$SearchDate >= "2012-02-01 UTC",] #Start from February because Jan data is not reliable
+dataset <- dataset[dataset$Clicks > 0,] #Remove rows with no clicks
+dataset <-dataset[complete.cases(dataset),] #Remove rows with NAs
+
+#save this clean csv for later
+write.csv(dataset,"keywords.csv")
+#dataset <- read.csv("keywords.csv", stringsAsFactors=FALSE); 
+#dataset$SearchDate <- as.Date(dataset$SearchDate)
+
+```
+
+###Analysis #1 Plot a Picture of the Data
+After combining the csv files into one dataset, I totaled the Revenue and Clicks in each day and averaged the CPC across all the keywords. There are some anomalies in the data but I will ignore them for now. Overall, even though the clicks are increasing, the total Revenue as well as the average CPC are declining.
+
+```{r, warning=FALSE, message=FALSE, fig.height=3.5, fig.width=8}
+
+by_date <- group_by(dataset, SearchDate)
+date_summary <- summarize(by_date, CPC=mean(CPC), Revenue=sum(Revenue), Clicks=sum(Clicks))
+
+Dates <- date_summary$SearchDate
+Revenue <- date_summary$Revenue/1000
+Clicks <- date_summary$Clicks
+CPC <- date_summary$CPC
+
+
+#Near zero values were distorting the chart
+#Chart is easier to read if the data is left out
+date_summary$Revenue[c(18:32,85:87)] <- NA
+
+p1 <- ggplot(date_summary, aes(x=SearchDate, y=Revenue/1000)) + 
+  geom_line() + ggtitle("Revenue per Day") +
+  ylab("(Thousands of GBP)") + xlab(NULL) + ylim(from=225/3, to=225) +
+  geom_line(col="navy")
+
+date_summary$Clicks[c(19:32, 40:43, 85:87)] <- NA
+p2 <- ggplot(date_summary, aes(x=SearchDate, y=Clicks/1000)) + 
+  geom_line() + ggtitle("Clicks per Day") +
+  ylab(NULL) + xlab(NULL) + ylim(from=40/2, to=40) +
+   geom_line(col="navy")
+
+date_summary$CPC[c(19:32, 85:87)] <- NA
+p3 <- ggplot(date_summary, aes(x=SearchDate, y=CPC)) + 
+  geom_line() + ggtitle("Average CPC per Day") +
+  ylab(NULL) + xlab(NULL) + geom_line(col="navy")
+
+multiplot(p1, p2, p3, cols=3)
+
+
+```
+
+###Analysis #2 Identify Keywords with the Great Increases and Decreases
+I wanted to see if there were any particular keywords that were causing the decline in revenue. I created totals of the revenue generated by each keyword each month. Then I plotted the difference between the February revenue and the May revenue to see what keywords declined or gained the most. 
+
+```{r, warning=FALSE, message=FALSE, fig.height=3.5, fig.width=8}
+
+by_month <- group_by(dataset, Keyword, Month=months(SearchDate))
+month_summary <- summarize(by_month,  Revenue=sum(Revenue))
+month_summary$Month <- factor(month_summary$Month, levels = c("February", "March", "April", "May"))
+month_summary <- dcast(month_summary, Keyword ~ Month, value.var = "Revenue") #Create one collumn per month
+month_summary$Change <- month_summary$May - month_summary$February
+
+top10 <- head(arrange(month_summary, desc(Change)),10)
+#Reorder the factor so it plots correctly
+top10$Keyword <- revFactor(factor(top10$Keyword, levels = top10$Keyword))
+
+bottom10 <- head(arrange(month_summary, Change),10)
+#Reorder the factor so it plots correctly
+bottom10$Keyword <- revFactor(factor(bottom10$Keyword, levels = bottom10$Keyword))
+
+p1 <- ggplot(data=bottom10, aes(x=Keyword, y=Change/1000, fill=Change)) +
+  geom_bar(colour="black", stat="identity")  + coord_flip() + 
+  theme(legend.position="none") + 
+  ggtitle("Top 10 Revenue Decrease\nFeb-May") +
+  ylab("(Thousands of GBP)") + xlab(NULL)
+
+p2 <- ggplot(data=top10, aes(x=Keyword, y=Change/1000, fill=Change)) +
+  geom_bar(colour="black", stat="identity")  + coord_flip() + 
+  theme(legend.position="none") + 
+  ggtitle("Top 10 Revenue Increase\nFeb-May") +
+  ylab("(Thousands of GBP)") + xlab(NULL)
+
+multiplot(p1, p2, cols=2)
+
+```
+
+It is clear that a major source of the decline in overall revenue is caused by the decrease is revenue from the netflix.
+
+###Analysis #3 Dig into Netflix 
+I filtered the dataset to netflix data only and plotted the revenue, clicks, and CPC over time. Indeed, there is a significant decline in revenue-8X-from February to the end of May. What could be causing this decline? I did my own Web search for "netflix UK 2012" and discovered that Netflix launched in the UK in January 2012. So most likely Netflix was investing in paid search to support their launch and bidding aggressively to make sure that they got the top search result. Even though the clicks on "netflix" are relatively steady, the average bid has decreased from 12 GBP to under 1 GBP-which explains the massive drop in revenue.
+
+```{r,  warning=FALSE, message=FALSE, fig.height=3.5, fig.width=8}
+dataset_netflix <- dataset[dataset$Keyword=="netflix",]
+by_date_netflix <- group_by(dataset_netflix, SearchDate)
+date_summary_netflix <- summarize(by_date_netflix, CPC=mean(CPC), Revenue=sum(Revenue), Clicks=sum(Clicks))
+
+pa <- ggplot(date_summary_netflix, aes(x=SearchDate, y=Revenue/1000)) + 
+  geom_line() + ggtitle("Revenue per Day") +
+  ylab("(Thousands of GBP)") + xlab(NULL)  +
+  geom_line(col="navy")
+
+date_summary_netflix$Clicks[c(26:28)] <- NA
+pb <- ggplot(date_summary_netflix, aes(x=SearchDate, y=Clicks/1000)) + 
+  geom_line() + ggtitle("Clicks per Day") + ylim(from=4, to=9) +
+  ylab(NULL) + xlab(NULL) + geom_line(col="navy")
+
+#date_summary_netflix$CPC[c(19:32, 85:87)] <- NA
+pc <- ggplot(date_summary_netflix, aes(x=SearchDate, y=CPC)) + 
+  geom_line() + ggtitle("Average CPC per Day") +
+  ylab(NULL) + xlab(NULL) + geom_line(col="navy")
+
+multiplot(pa, pb, pc, cols=3)
+
+
+```
+
+###Analysis #4 Forecast for June
+Even though there is a logical explanation for the decline in revenue, the sales team will still be expected to meet their sales quota. Though, they must be nervous to know if the revenue will continue to decline.
+
+Let's create a forecast for the sales team for the June revenue. I performed a time series analysis called ARIMA (Autoregressive Integrated Moving Average) that used the prior 4 months of data to predict the revenue for June.
+
+In order to create a more trustable forecast I cleaned up some of the gaps in the data, which is why the chart below does not have the big gaps like the charts above.
+
+```{r, warning=FALSE, message=FALSE, fig.height=3.5, fig.width=8}
+
+by_date <- group_by(dataset, SearchDate)
+date_summary <- summarize(by_date, CPC=mean(CPC), Revenue=sum(Revenue), Clicks=sum(Clicks))
+date_summary <- arrange(date_summary, SearchDate)
+
+Revenue <- round(date_summary$Revenue)
+Start <- as.Date(date_summary[1,]$SearchDate)
+
+#Fill in some of the days that had very low sales
+Revenue[18:32] <- round(seq(from=211060, to=179251, length.out =15))
+Revenue[85:87] <- round(seq(from=124112, to=123375, length.out =3))
+RevTS <- ts(Revenue/1000)
+
+RevTS.seriesarima <- arima(RevTS, order=c(1,0,0))
+RevTS.seriesarima2 <- forecast.Arima(RevTS.seriesarima, h=30)
+plot.forecast(RevTS.seriesarima2, main = "Revenue Time Series with June Forcast", xaxt="n") 
+axis(side=1, at=c(0,30,60,90,120), labels = c("February", "March", "April", "May", "June")) 
+abline(h=c(0,30,60,90,120), v=c(0,30,60,90,120), col="gray", lty=3)
+```
+
+The forecast shows that the Revenue should be on a positive trend in June-but there is still risk. The dark blue line is the predicted revenue. The medium blue shaded area is the 80% confidence interval and the light blue area represents the 95% confidence interval. 
+
+But this forecast is more helpful than a simple linear regression line, which would show a continued decline. The ARIMA forecast uses a moving average that weights the most recent data more heavily.
